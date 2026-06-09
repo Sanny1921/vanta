@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from 'react';
+import { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import socketService from '../services/socketService';
 
@@ -20,6 +20,11 @@ export const RoomProvider = ({ children }) => {
   const [error, setError] = useState(null);
   const [typingUsers, setTypingUsers] = useState(new Set());
 
+  // Connect socket on mount
+  useEffect(() => {
+    socketService.connect();
+  }, []);
+
   // Room lifecycle
   const createRoom = useCallback((data) => {
     return new Promise((resolve, reject) => {
@@ -39,6 +44,13 @@ export const RoomProvider = ({ children }) => {
             displayName: data.hostDisplayName,
             isHost: true
           }]);
+
+          // Save session data to sessionStorage
+          sessionStorage.setItem('vanta_room_id', response.roomId);
+          sessionStorage.setItem('vanta_room_user_id', response.roomUserId);
+          sessionStorage.setItem('vanta_display_name', data.hostDisplayName);
+          sessionStorage.setItem('vanta_host_access_token', response.hostAccessToken);
+
           resolve(response);
         }
       });
@@ -65,6 +77,17 @@ export const RoomProvider = ({ children }) => {
           setParticipants(response.participants || []);
           setTotalUsers(response.totalUsers);
           setRoomSettings(response.settings || null);
+          const isUserHost = response.participants?.find(p => p.roomUserId === response.roomUserId)?.isHost || false;
+          setIsHost(isUserHost);
+
+          // Save session data to sessionStorage
+          sessionStorage.setItem('vanta_room_id', response.roomId);
+          sessionStorage.setItem('vanta_room_user_id', response.roomUserId);
+          sessionStorage.setItem('vanta_display_name', data.displayName);
+          if (data.hostAccessToken) {
+            sessionStorage.setItem('vanta_host_access_token', data.hostAccessToken);
+          }
+
           resolve(response);
         }
       });
@@ -89,6 +112,17 @@ export const RoomProvider = ({ children }) => {
           setParticipants(response.participants || []);
           setTotalUsers(response.totalUsers);
           setRoomSettings(response.settings || null);
+          const isUserHost = response.participants?.find(p => p.roomUserId === response.roomUserId)?.isHost || false;
+          setIsHost(isUserHost);
+
+          // Save session data to sessionStorage
+          sessionStorage.setItem('vanta_room_id', response.roomId);
+          sessionStorage.setItem('vanta_room_user_id', response.roomUserId);
+          sessionStorage.setItem('vanta_display_name', data.displayName);
+          if (data.hostAccessToken) {
+            sessionStorage.setItem('vanta_host_access_token', data.hostAccessToken);
+          }
+
           resolve(response);
         }
       });
@@ -106,6 +140,12 @@ export const RoomProvider = ({ children }) => {
       setMessages([]);
       setTotalUsers(0);
       setError(null);
+
+      // Clear sessionStorage
+      sessionStorage.removeItem('vanta_room_id');
+      sessionStorage.removeItem('vanta_room_user_id');
+      sessionStorage.removeItem('vanta_display_name');
+      sessionStorage.removeItem('vanta_host_access_token');
     }
   }, [currentRoom]);
 
@@ -154,7 +194,8 @@ export const RoomProvider = ({ children }) => {
 
   const terminateRoom = useCallback(() => {
     if (currentRoom && isHost) {
-      socketService.terminateRoom({ roomId: currentRoom }, (response) => {
+      const hostAccessToken = sessionStorage.getItem('vanta_host_access_token');
+      socketService.terminateRoom({ roomId: currentRoom, hostAccessToken }, (response) => {
         if (response.error) {
           setError(response.error);
         }
@@ -202,6 +243,12 @@ export const RoomProvider = ({ children }) => {
     setTotalUsers(0);
     setRoomSettings(null);
     setError(null);
+
+    // Clear sessionStorage
+    sessionStorage.removeItem('vanta_room_id');
+    sessionStorage.removeItem('vanta_room_user_id');
+    sessionStorage.removeItem('vanta_display_name');
+    sessionStorage.removeItem('vanta_host_access_token');
   }, []);
 
   const value = {

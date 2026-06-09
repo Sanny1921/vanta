@@ -30,12 +30,18 @@ export default function Room() {
     removeTypingUser,
     clearRoom,
     terminateRoom,
-    leaveRoom
+    leaveRoom,
+    joinRoom
   } = useRoom();
 
   const [showParticipants, setShowParticipants] = useState(false);
   const [roomDeleted, setRoomDeleted] = useState(false);
   const messagesEndRef = useRef(null);
+  const [rejoining, setRejoining] = useState(() => {
+    const cachedRoomId = sessionStorage.getItem('vanta_room_id');
+    const cachedDisplayName = sessionStorage.getItem('vanta_display_name');
+    return (!currentRoom && cachedRoomId === roomId && cachedDisplayName);
+  });
 
   // Setup socket listeners
   useEffect(() => {
@@ -148,12 +154,45 @@ export default function Room() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Check if still in a room
+  // Handle session recovery and redirects
   useEffect(() => {
-    if (!currentRoom || currentRoom !== roomId) {
+    const cachedRoomId = sessionStorage.getItem('vanta_room_id');
+    const cachedRoomUserId = sessionStorage.getItem('vanta_room_user_id');
+    const cachedDisplayName = sessionStorage.getItem('vanta_display_name');
+    const cachedHostAccessToken = sessionStorage.getItem('vanta_host_access_token');
+
+    if (!currentRoom) {
+      if (cachedRoomId === roomId && cachedDisplayName) {
+        setRejoining(true);
+        // Connect socket
+        socketService.connect();
+
+        joinRoom({
+          roomId,
+          displayName: cachedDisplayName,
+          roomUserId: cachedRoomUserId,
+          hostAccessToken: cachedHostAccessToken
+        })
+          .then(() => {
+            setRejoining(false);
+          })
+          .catch((err) => {
+            console.error('[Room] Rejoin failed:', err);
+            sessionStorage.removeItem('vanta_room_id');
+            sessionStorage.removeItem('vanta_room_user_id');
+            sessionStorage.removeItem('vanta_display_name');
+            sessionStorage.removeItem('vanta_host_access_token');
+            navigate(`/join/${roomId}`);
+          });
+      } else {
+        // No session exists, redirect to home page join modal
+        navigate(`/join/${roomId}`);
+      }
+    } else if (currentRoom !== roomId) {
+      // Room mismatch
       navigate('/');
     }
-  }, [currentRoom, roomId, navigate]);
+  }, [currentRoom, roomId, joinRoom, navigate]);
 
   const handleLeaveRoom = () => {
     leaveRoom();
@@ -165,6 +204,15 @@ export default function Room() {
       terminateRoom();
     }
   };
+
+  if (rejoining) {
+    return (
+      <div className="room-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', flexDirection: 'column', gap: '20px' }}>
+        <div className="spinner"></div>
+        <p style={{ color: 'var(--vanta-text-secondary)', fontSize: '14px', fontWeight: '500' }}>Restoring Vanta Session...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="room-container">

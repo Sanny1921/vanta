@@ -108,7 +108,9 @@ class SocketManager {
       const joinResult = roomManager.addUserToRoom(
         creationResult.roomId,
         socket.id,
-        hostDisplayName
+        hostDisplayName,
+        null,
+        creationResult.hostAccessToken
       );
 
       // Join socket to room namespace
@@ -122,6 +124,7 @@ class SocketManager {
         roomId: creationResult.roomId,
         roomUrl: creationResult.roomUrl,
         roomUserId: joinResult.roomUserId,
+        hostAccessToken: creationResult.hostAccessToken,
         settings: creationResult.settings
       });
 
@@ -153,7 +156,7 @@ class SocketManager {
    */
   handleJoinRoom(io, socket, data, callback) {
     try {
-      const { roomId, displayName } = data;
+      const { roomId, displayName, roomUserId, hostAccessToken } = data;
 
       if (!roomId || !displayName || displayName.trim() === '') {
         callback({ error: 'INVALID_DATA' });
@@ -180,7 +183,7 @@ class SocketManager {
       }
 
       // Add user to room
-      const joinResult = roomManager.addUserToRoom(roomId, socket.id, displayName);
+      const joinResult = roomManager.addUserToRoom(roomId, socket.id, displayName, roomUserId, hostAccessToken);
 
       if (joinResult.error) {
         callback({ error: joinResult.error, ...joinResult });
@@ -213,17 +216,19 @@ class SocketManager {
         }
       });
 
-      // Notify others
-      io.to(roomId).emit(SOCKET_EVENTS.USER_JOINED, {
-        type: SYSTEM_MESSAGE_TYPES.USER_JOINED,
-        user: {
-          roomUserId: joinResult.roomUserId,
-          displayName,
-          isHost: joinResult.isHost
-        },
-        totalUsers: joinResult.totalUsers,
-        message: `${displayName} joined the room`
-      });
+      // Notify others (only if they didn't just rejoin in-place)
+      if (!joinResult.rejoined) {
+        io.to(roomId).emit(SOCKET_EVENTS.USER_JOINED, {
+          type: SYSTEM_MESSAGE_TYPES.USER_JOINED,
+          user: {
+            roomUserId: joinResult.roomUserId,
+            displayName,
+            isHost: joinResult.isHost
+          },
+          totalUsers: joinResult.totalUsers,
+          message: `${displayName} joined the room`
+        });
+      }
 
       // Broadcast room users updated event
       io.to(roomId).emit(SOCKET_EVENTS.ROOM_USERS_UPDATED, {
@@ -241,9 +246,9 @@ class SocketManager {
    */
   handleVerifyPassword(io, socket, data, callback) {
     try {
-      const { roomId, displayName, password } = data;
+      const { roomId, displayName, password, roomUserId, hostAccessToken } = data;
 
-      if (!roomId || !displayName || !password) {
+      if (!roomId || !displayName) {
         callback({ error: 'INVALID_DATA' });
         return;
       }
@@ -254,14 +259,15 @@ class SocketManager {
         return;
       }
 
-      // Verify password
-      if (!validatePassword(password, room.password)) {
+      // Verify password (skip password check if this is a host/user rejoining)
+      const isRejoining = roomUserId && roomManager.getRoomUsers(roomId).some(u => u.roomUserId === roomUserId);
+      if (!isRejoining && room.password && !validatePassword(password, room.password)) {
         callback({ error: 'PASSWORD_INVALID' });
         return;
       }
 
-      // Password correct, add user to room
-      const joinResult = roomManager.addUserToRoom(roomId, socket.id, displayName);
+      // Password correct (or rejoining), add user to room
+      const joinResult = roomManager.addUserToRoom(roomId, socket.id, displayName, roomUserId, hostAccessToken);
 
       if (joinResult.error) {
         callback({ error: joinResult.error, ...joinResult });
@@ -292,17 +298,19 @@ class SocketManager {
         }
       });
 
-      // Notify others
-      io.to(roomId).emit(SOCKET_EVENTS.USER_JOINED, {
-        type: SYSTEM_MESSAGE_TYPES.USER_JOINED,
-        user: {
-          roomUserId: joinResult.roomUserId,
-          displayName,
-          isHost: joinResult.isHost
-        },
-        totalUsers: joinResult.totalUsers,
-        message: `${displayName} joined the room`
-      });
+      // Notify others (only if they didn't just rejoin in-place)
+      if (!joinResult.rejoined) {
+        io.to(roomId).emit(SOCKET_EVENTS.USER_JOINED, {
+          type: SYSTEM_MESSAGE_TYPES.USER_JOINED,
+          user: {
+            roomUserId: joinResult.roomUserId,
+            displayName,
+            isHost: joinResult.isHost
+          },
+          totalUsers: joinResult.totalUsers,
+          message: `${displayName} joined the room`
+        });
+      }
 
       // Broadcast room users updated event
       io.to(roomId).emit(SOCKET_EVENTS.ROOM_USERS_UPDATED, {
@@ -405,7 +413,9 @@ class SocketManager {
       }
 
       // Check if user is host
-      if (room.hostId !== socket.id) {
+      const { hostAccessToken } = data;
+      const isHost = (room.hostId === socket.id) || (hostAccessToken && hostAccessToken === room.hostAccessToken);
+      if (!isHost) {
         callback({ error: 'NOT_HOST' });
         return;
       }
@@ -496,13 +506,12 @@ class SocketManager {
       const socketInfo = roomManager.getSocketInfo(socket.id);
 
       if (socketInfo) {
-        const { roomId } = socketInfo;
-        const user = roomManager.removeUserFromRoom(roomId, socket.id);
+        const { roomId, userId: roomUserId } = socketInfo;
 
-        if (user) {
-          console.log(
-            `[Socket] ${user.displayName} disconnected from room ${roomId}`
-          );
+        console.log(`[Socket] User ${roomUserId} disconnected temporarily from room ${roomId}. Starting grace period.`);
+
+        roomManager.addPendingDisconnect(roomId, socket.id, roomUserId, (user) => {
+          console.log(`[Socket] Disconnect grace period expired for ${user.displayName} (ID: ${user.roomUserId}) in room ${roomId}`);
 
           // Notify others
           io.to(roomId).emit(SOCKET_EVENTS.USER_LEFT, {
@@ -520,10 +529,10 @@ class SocketManager {
             participants: roomManager.getRoomUsers(roomId),
             totalUsers: roomManager.getRoomUserCount(roomId)
           });
-        }
+        });
       }
 
-      console.log(`[Socket] User disconnected: ${socket.id}`);
+      console.log(`[Socket] User socket disconnected: ${socket.id}`);
     } catch (error) {
       console.error('[Socket] Error handling disconnect:', error);
     }

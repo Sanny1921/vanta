@@ -10,6 +10,8 @@ class RoomManager {
     this.roomUsers = new Map();
     // Map to track socket to room/user: socketId -> { roomId, userId }
     this.socketMap = new Map();
+    // Map to track pending disconnect timeouts: roomUserId -> { timeoutId, socketId, roomId }
+    this.pendingDisconnects = new Map();
   }
 
   /**
@@ -39,10 +41,13 @@ class RoomManager {
       settings.maxUsers = memberLimit;
     }
 
+    const hostAccessToken = generateId('HOST');
+
     const room = {
       roomId,
       hostId,
       hostDisplayName,
+      hostAccessToken,
       createdAt,
       roomLifespanMs: settings.roomLifespanMinutes * 60 * 1000,
       autoDeleteMs: settings.autoDeleteMinutes * 60 * 1000,
@@ -60,6 +65,7 @@ class RoomManager {
       roomId,
       roomUrl: generateRoomUrl(roomId),
       hostId,
+      hostAccessToken,
       createdAt,
       settings: {
         roomLifespanMinutes: settings.roomLifespanMinutes,
@@ -110,37 +116,77 @@ class RoomManager {
   /**
    * Add user to room
    */
-  addUserToRoom(roomId, socketId, displayName) {
+  addUserToRoom(roomId, socketId, displayName, roomUserId = null, hostAccessToken = null) {
     const room = this.rooms.get(roomId);
     if (!room) return null;
 
     const users = this.roomUsers.get(roomId) || [];
 
-    // Check if room is full
+    // Check if user is rejoining (session restoration)
+    let user = null;
+    if (roomUserId) {
+      user = users.find(u => u.roomUserId === roomUserId);
+    }
+
+    if (user) {
+      // Rejoining! Clear any pending disconnect timeouts
+      this.clearPendingDisconnect(roomUserId);
+
+      // Clean up old socket registration if it changed
+      if (user.socketId && user.socketId !== socketId) {
+        this.socketMap.delete(user.socketId);
+      }
+
+      // Update user details
+      user.socketId = socketId;
+      this.socketMap.set(socketId, { roomId, userId: roomUserId });
+
+      // Restore host privileges if they are verified
+      const isHost = (roomUserId === room.hostUserId) || (hostAccessToken && hostAccessToken === room.hostAccessToken);
+      if (isHost) {
+        room.hostId = socketId;
+        room.hostUserId = roomUserId;
+      }
+
+      console.log(`[RoomManager] Restored session for ${displayName} (ID: ${roomUserId}, Host: ${isHost})`);
+
+      return {
+        roomUserId,
+        displayName: user.displayName,
+        isHost,
+        totalUsers: users.length,
+        rejoined: true
+      };
+    }
+
+    // New user joining (check limit)
     if (users.length >= room.maxUsers) {
       return { error: 'ROOM_FULL', maxUsers: room.maxUsers, currentUsers: users.length };
     }
 
-    const roomUserId = generateId('USER');
-    const user = {
-      roomUserId,
+    const actualUserId = roomUserId || generateId('USER');
+    const newUser = {
+      roomUserId: actualUserId,
       socketId,
       displayName,
       joinedAt: getCurrentTimestamp()
     };
 
-    if (socketId === room.hostId) {
-      room.hostUserId = roomUserId;
+    // If host token matches or this is the creator of the room (socketId === room.hostId)
+    const isHost = (socketId === room.hostId) || (hostAccessToken && hostAccessToken === room.hostAccessToken);
+    if (isHost) {
+      room.hostUserId = actualUserId;
+      room.hostId = socketId;
     }
 
-    users.push(user);
+    users.push(newUser);
     this.roomUsers.set(roomId, users);
-    this.socketMap.set(socketId, { roomId, userId: roomUserId });
+    this.socketMap.set(socketId, { roomId, userId: actualUserId });
 
     return {
-      roomUserId,
+      roomUserId: actualUserId,
       displayName,
-      isHost: user.roomUserId === room.hostUserId,
+      isHost,
       totalUsers: users.length
     };
   }
@@ -154,12 +200,45 @@ class RoomManager {
 
     if (userIndex !== -1) {
       const user = users[userIndex];
+      // Clean up any pending disconnects
+      this.clearPendingDisconnect(user.roomUserId);
+      
       users.splice(userIndex, 1);
       this.roomUsers.set(roomId, users);
       this.socketMap.delete(socketId);
       return user;
     }
     return null;
+  }
+
+  /**
+   * Add a pending disconnect grace period
+   */
+  addPendingDisconnect(roomId, socketId, roomUserId, onExpired) {
+    this.clearPendingDisconnect(roomUserId);
+
+    const timeoutId = setTimeout(() => {
+      this.pendingDisconnects.delete(roomUserId);
+      const user = this.removeUserFromRoom(roomId, socketId);
+      if (user && onExpired) {
+        onExpired(user);
+      }
+    }, 5000); // 5-second grace period
+
+    this.pendingDisconnects.set(roomUserId, { timeoutId, socketId, roomId });
+  }
+
+  /**
+   * Clear a pending disconnect
+   */
+  clearPendingDisconnect(roomUserId) {
+    const pending = this.pendingDisconnects.get(roomUserId);
+    if (pending) {
+      clearTimeout(pending.timeoutId);
+      this.pendingDisconnects.delete(roomUserId);
+      return true;
+    }
+    return false;
   }
 
   /**
