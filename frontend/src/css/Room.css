@@ -1,0 +1,61 @@
+/* Room Page & Wrapper Centering */
+.room-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background-color: var(--vanta-bg);
+  width: 100%;
+}
+
+.room-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  max-width: 850px;
+  margin: 0 auto;
+  background-color: var(--vanta-surface);
+  border-left: 1px solid var(--vanta-border);
+  border-right: 1px solid var(--vanta-border);
+  box-shadow: 0 0 50px rgba(0, 0, 0, 0.6);
+  position: relative;
+}
+
+.room-actions {
+  padding: 15px 20px;
+  background-color: var(--vanta-surface);
+  border-top: 1px solid var(--vanta-border);
+  display: flex;
+  gap: 10px;
+}
+
+.btn-leave {
+  flex: 1;
+  padding: 12px;
+  background: var(--vanta-input);
+  color: #f87171;
+  border: 1px solid var(--vanta-border);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-leave:hover {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  transform: translateY(-1px);
+}
+
+.btn-leave:active {
+  transform: translateY(0);
+}
+
+@media (max-width: 850px) {
+  .room-content-wrapper {
+    border-left: none;
+    border-right: none;
+    max-width: 100%;
+  }
+}

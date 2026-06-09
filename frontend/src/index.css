@@ -1,0 +1,55 @@
+:root {
+  font-family: 'Inter', system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: dark;
+  
+  --vanta-bg: #0b0b0b;
+  --vanta-surface: #121212;
+  --vanta-card: #171717;
+  --vanta-input: #222222;
+  --vanta-border: #333333;
+  --vanta-text-primary: #e8e8e8;
+  --vanta-text-secondary: #a0a0a0;
+  --vanta-text-muted: #707070;
+  --vanta-accent: #8b5cf6;
+  --vanta-accent-hover: #7c3aed;
+  --vanta-danger: #ef4444;
+  --vanta-danger-hover: #dc2626;
+
+  color: var(--vanta-text-primary);
+  background-color: var(--vanta-bg);
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  background-color: var(--vanta-bg);
+  color: var(--vanta-text-primary);
+}
+
+body {
+  margin: 0;
+  display: flex;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  width: 100%;
+  margin: 0 auto;
+}
